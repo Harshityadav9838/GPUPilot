@@ -9,7 +9,7 @@ import {
   CartesianGrid
 } from "recharts";
 
-export function MetricsChart({ history }) {
+export function MetricsChart({ history, theme = "dark" }) {
   const [activeTab, setActiveTab] = useState("all");
 
   if (!history || history.length < 2) {
@@ -105,16 +105,20 @@ export function MetricsChart({ history }) {
               </linearGradient>
             </defs>
 
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke={theme === "light" ? "rgba(0,0,0,0.07)" : "rgba(255,255,255,0.05)"} vertical={false} />
             <XAxis dataKey="time" stroke="#64748b" fontSize={11} tickLine={false} />
             <YAxis stroke="#64748b" fontSize={11} tickLine={false} domain={[0, 100]} />
             <Tooltip
               contentStyle={{
-                backgroundColor: "rgba(13, 20, 36, 0.95)",
-                border: "1px solid rgba(255,255,255,0.1)",
+                backgroundColor: theme === "light" ? "#ffffff" : "rgba(13, 20, 36, 0.95)",
+                border: theme === "light" ? "1px solid #cbd5e1" : "1px solid rgba(255,255,255,0.1)",
                 borderRadius: "8px",
                 fontSize: "12px",
-                color: "#f1f5f9"
+                color: theme === "light" ? "#0f172a" : "#f1f5f9",
+                boxShadow: theme === "light" ? "0 4px 14px rgba(0,0,0,0.1)" : "0 4px 14px rgba(0,0,0,0.4)"
+              }}
+              itemStyle={{
+                color: theme === "light" ? "#1e293b" : "#f1f5f9"
               }}
             />
 

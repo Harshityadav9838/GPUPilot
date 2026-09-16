@@ -1,7 +1,7 @@
 import React from "react";
-import { Cpu, Zap, Globe } from "lucide-react";
+import { Cpu, Zap, Sun, Moon } from "lucide-react";
 
-export function Header({ gpuInfo, isOnline }) {
+export function Header({ gpuInfo, isOnline, theme = "dark", onToggleTheme }) {
   const isDemo = gpuInfo?.is_demo;
   const isWebEngine = gpuInfo?.provider_type === "BrowserWebEngine";
 
@@ -61,6 +61,26 @@ export function Header({ gpuInfo, isOnline }) {
               : "Connecting..."}
           </span>
         </div>
+
+        {/* Theme Toggle Button */}
+        <button
+          className="theme-toggle-btn"
+          onClick={onToggleTheme}
+          title={theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"}
+          aria-label="Toggle dual theme"
+        >
+          {theme === "dark" ? (
+            <>
+              <Sun size={15} className="theme-icon sun" />
+              <span className="theme-label">Light Mode</span>
+            </>
+          ) : (
+            <>
+              <Moon size={15} className="theme-icon moon" />
+              <span className="theme-label">Dark Mode</span>
+            </>
+          )}
+        </button>
       </div>
     </header>
   );

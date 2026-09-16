@@ -47,3 +47,9 @@ yarn-error.log*
 # OS
 .DS_Store
 Thumbs.db
+
+# Build temp
+video_build_tmp/
+synth.ps1
+slides.html
+test_voice.wav

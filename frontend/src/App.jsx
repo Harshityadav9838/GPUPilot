@@ -24,6 +24,19 @@ export function App() {
   const [isOnline, setIsOnline] = useState(false);
   const [isSwitching, setIsSwitching] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
+  const [theme, setTheme] = useState(() => {
+    return localStorage.getItem("gpupilot_theme") || "dark";
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("gpupilot_theme", theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+  };
+
 
   const isPausedRef = useRef(isPaused);
   isPausedRef.current = isPaused;
@@ -181,7 +194,7 @@ export function App() {
   return (
     <div className="app-container">
       {/* Top Header */}
-      <Header gpuInfo={gpuInfo} isOnline={isOnline} />
+      <Header gpuInfo={gpuInfo} isOnline={isOnline} theme={theme} onToggleTheme={toggleTheme} />
 
       {/* Error / Alert banner */}
       {errorMsg && (
@@ -244,7 +257,7 @@ export function App() {
         {/* Charts and Diagnostic Split (Phase 8 Multi-Stream Charts) */}
         <div className="split-view">
           <div className="split-left">
-            <MetricsChart history={history} />
+            <MetricsChart history={history} theme={theme} />
           </div>
           <div className="split-right">
             <DiagnosticCard diagnosis={diagnosis} />
