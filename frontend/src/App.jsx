@@ -8,6 +8,7 @@ import { BenchmarkCard } from "./components/BenchmarkCard";
 import { AgentDrawer } from "./components/AgentDrawer";
 import { TuningPanel } from "./components/TuningPanel";
 import { ScenarioSelector } from "./components/ScenarioSelector";
+import { HardwareModal } from "./components/HardwareModal";
 import { api } from "./services/api";
 import { Play, Pause, RefreshCw, Cpu, Sliders, AlertCircle } from "lucide-react";
 
@@ -23,6 +24,8 @@ export function App() {
   const [isPaused, setIsPaused] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
   const [isSwitching, setIsSwitching] = useState(false);
+  const [showHardwareModal, setShowHardwareModal] = useState(false);
+  const [isCheckingBackend, setIsCheckingBackend] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem("gpupilot_theme") || "dark";
@@ -138,14 +141,21 @@ export function App() {
   const handleModeToggle = async () => {
     const targetMode = gpuInfo?.is_demo ? "hardware" : "demo";
     setIsSwitching(true);
+    setErrorMsg(null);
     try {
-      await api.switchMode(targetMode);
+      const res = await api.switchMode(targetMode);
       const [newGpu, newMetrics, newDiag, newPlan] = await Promise.all([
         api.getGPU(),
         api.getMetrics(),
         api.getDiagnosis(),
         api.getOptimizationPlan()
       ]);
+
+      // If user wanted hardware but the backend is not live or returned demo/webengine
+      if (targetMode === "hardware" && (newGpu?.is_demo || newGpu?.provider_type === "BrowserWebEngine" || api.isWebMode())) {
+        setShowHardwareModal(true);
+      }
+
       setGpuInfo(newGpu);
       setMetrics(newMetrics);
       setDiagnosis(newDiag);
@@ -153,9 +163,39 @@ export function App() {
       setHistory([]);
     } catch (err) {
       console.error("Failed to toggle mode:", err);
-      setErrorMsg(`Mode switch failed: ${err.message}`);
+      if (targetMode === "hardware") {
+        setShowHardwareModal(true);
+      } else {
+        setErrorMsg(`Mode switch failed: ${err.message}`);
+      }
     } finally {
       setIsSwitching(false);
+    }
+  };
+
+  const handleRetryHardware = async () => {
+    setIsCheckingBackend(true);
+    try {
+      const [newGpu, m, d, plan, bStatus] = await Promise.all([
+        api.getGPU(),
+        api.getMetrics(),
+        api.getDiagnosis(),
+        api.getOptimizationPlan(),
+        api.getBenchmarkStatus()
+      ]);
+      setGpuInfo(newGpu);
+      setMetrics(m);
+      setDiagnosis(d);
+      setOptPlan(plan);
+      setBenchStatus(bStatus);
+      if (!newGpu?.is_demo && newGpu?.provider_type !== "BrowserWebEngine") {
+        setShowHardwareModal(false);
+        setErrorMsg(null);
+      }
+    } catch (e) {
+      // Still not reachable
+    } finally {
+      setIsCheckingBackend(false);
     }
   };
 
@@ -248,6 +288,15 @@ export function App() {
           </button>
         </div>
       </div>
+
+      {/* Hardware Connection Explanation Modal */}
+      <HardwareModal
+        isOpen={showHardwareModal}
+        onClose={() => setShowHardwareModal(false)}
+        onRetry={handleRetryHardware}
+        gpuName={gpuInfo?.name}
+        isChecking={isCheckingBackend}
+      />
 
       {/* Main Content Layout */}
       <main className="main-content">
