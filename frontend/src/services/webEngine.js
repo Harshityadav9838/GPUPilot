@@ -474,27 +474,174 @@ export const webEngine = {
 
   askAgent(prompt = "") {
     const m = this.getMetrics();
-    const q = prompt.toLowerCase();
+    const q = (prompt || "").toLowerCase().trim();
+    const gpuName = m.name || "GPU Accelerator";
+    const util = m.gpu_utilization;
+    const temp = m.temperature;
+    const vram = m.memory_utilization;
+    const vramUsed = m.memory_used;
+    const cpu = m.cpu_utilization;
+    const power = m.power_usage;
+    const powerLimit = m.power_limit || 45.0;
+    const gpuClock = m.gpu_clock || 1350.0;
+    const memClock = m.memory_clock || 6000.0;
+    const latency = m.latency || 22.0;
+    const throughput = m.throughput || 180.0;
 
-    if (q.includes("cpu hotter") || (q.includes("temp") && q.includes("cpu"))) {
+    // 1. Performance / Speed / FPS / Latency / Throughput
+    if (["performance", "speed", "fps", "how fast", "fast", "throughput", "latency", "tflops", "gflops", "rate"].some(k => q.includes(k))) {
+      let perfStatus, extra;
+      if (util > 80 && temp < 85) {
+        perfStatus = `Your ${gpuName} is operating at **high compute efficiency** (${util.toFixed(0)}% load) at ${gpuClock.toFixed(0)} MHz.`;
+        extra = `Throughput is measuring ~${throughput.toFixed(1)} ops/sec with low ${latency.toFixed(1)} ms frame/dispatch latency. Tensor pipelines and WebGL compute units are actively saturated.`;
+      } else if (temp >= 85) {
+        perfStatus = `Performance on ${gpuName} is **degraded by thermal throttling** (${temp.toFixed(0)}°C).`;
+        extra = `Core clocks have downclocked to ${gpuClock.toFixed(0)} MHz to prevent silicon degradation. Latency has increased to ${latency.toFixed(1)} ms.`;
+      } else if (cpu > 75 && util < 40) {
+        perfStatus = `Performance is **starved by host CPU latency** (Host CPU: ${cpu.toFixed(0)}% vs GPU: ${util.toFixed(0)}%).`;
+        extra = `The GPU is spending excessive cycles waiting for the CPU to process and dispatch batches. Frame latency is elevated at ${latency.toFixed(1)} ms.`;
+      } else {
+        perfStatus = `Your ${gpuName} is operating at a **moderate baseline** (${util.toFixed(0)}% load, ${gpuClock.toFixed(0)} MHz, ${temp.toFixed(0)}°C).`;
+        extra = `Current throughput is ~${throughput.toFixed(1)} ops/sec with ${latency.toFixed(1)} ms latency. There is ample thermal and compute headroom available for heavier workloads.`;
+      }
+
       return {
-        response: `Your host CPU (${m.cpu_utilization}% load) operates inside a shared chassis cooling envelope with your GPU. In modern laptops, the CPU package frequently reaches 85-95°C during high-framerate rendering or data prep while the dedicated GPU stays cooler (~${m.temperature}°C). This occurs because the CPU handles geometry calculation, browser draw calls, and script execution.`,
-        suggested_actions: ["Parallelize DataLoader workers", "Elevate laptop rear for intake airflow", "Limit background browser processes"],
+        response: `📊 **Real-Time Performance Evaluation**\n\n${perfStatus} ${extra}\n\n• **Clock Speed**: ${gpuClock.toFixed(0)} MHz core / ${memClock.toFixed(0)} MHz memory\n• **Compute Pipeline**: ${util.toFixed(0)}% utilized\n• **Latency / Throughput**: ${latency.toFixed(1)} ms / ${throughput.toFixed(1)} ops/s\n\n**To Maximize Performance:** Enable PyTorch Automatic Mixed Precision (AMP FP16) to unlock Tensor Cores, compile your model with \`torch.compile()\`, and ensure AC power is connected.`,
+        suggested_actions: ["Enable FP16 Tensor Cores", "Compile with torch.compile()", "Run 10s Compute Benchmark"],
         source: "GPUPilot Web AI Agent"
       };
     }
 
-    if (q.includes("4gb") || q.includes("vram")) {
+    // 2. GPU Utilization / Usage / Load / Spikes
+    const isUtilQuery = (
+      q.includes("utilization") ||
+      q.includes("gpu usage") ||
+      q.includes("gpu load") ||
+      q.includes("increases") ||
+      q.includes("increased") ||
+      q.includes("why high") ||
+      q.includes("why low") ||
+      (["usage", "load", "spike"].some(k => q.includes(k)) && !["power", "watt", "vram", "memory", "cpu", "temp", "thermal"].some(x => q.includes(x)))
+    );
+    if (isUtilQuery) {
+      let utilAnalysis, rec;
+      if (util >= 80) {
+        utilAnalysis = `Your GPU utilization is currently high at **${util.toFixed(0)}%** on ${gpuName}. This indicates that your active workload (matrix multiplications, shader draw calls, or WebGL geometry) is fully saturating the Streaming Multiprocessors (SMs) and warp schedulers.`;
+        rec = "If this is intentional (e.g. running a benchmark, model training, or 3D rendering), high utilization means you are getting full value from the silicon. If unexpected, check for background WebGL tabs or unthrottled render loops.";
+      } else if (util <= 25) {
+        utilAnalysis = `Your GPU utilization is relatively low at **${util.toFixed(0)}%**. Meanwhile, host CPU is at ${cpu.toFixed(0)}%.`;
+        rec = "Low GPU utilization occurs when the GPU is idle or bottlenecked upstream by CPU preprocessing, I/O disk reads, or small batch sizes that underfill execution warps.";
+      } else {
+        utilAnalysis = `Your GPU utilization is in a balanced mid-range at **${util.toFixed(0)}%**. Workload batches are flowing smoothly through the graphics and compute queues.`;
+        rec = "Utilization fluctuates dynamically as kernels are launched and synchronized. Increasing batch size will push utilization higher toward 95%+ peak efficiency.";
+      }
+
       return {
-        response: `On a 4GB VRAM accelerator, dedicated memory is your most scarce resource. Currently, VRAM occupancy is ${m.memory_utilization}%. To prevent Out-of-Memory (OOM) fatal errors during model execution, always activate gradient checkpointing (\`model.gradient_checkpointing_enable()\`), adopt INT8/4-bit quantization (BitsAndBytes), and utilize gradient accumulation instead of large micro-batches.`,
-        suggested_actions: ["Enable Gradient Checkpointing", "Apply INT8 Quantization", "Cut batch size in half"],
+        response: `📈 **GPU Utilization Analysis**\n\n${utilAnalysis}\n\n**Why does GPU load change?**\n1. **Kernel Compute Density**: Operations like FP16 convolutions or matrix GEMMs push utilization to 99%.\n2. **Host Synchronization**: CPU transfers (\`.to('cuda')\`) or unpinned memory cause periodic dips in utilization.\n3. **Pipeline Bottlenecks**: When CPU or VRAM runs out, the GPU stalls waiting for data.\n\n**Current Status:** ${gpuName} is running at **${util.toFixed(0)}%** load, drawing **${power.toFixed(1)}W** at **${temp.toFixed(0)}°C**.\n\n**Advice:** ${rec}`,
+        suggested_actions: ["Tune Batch Size Multiplier", "Inspect Warp Occupancy", "Switch to Balanced Profile"],
         source: "GPUPilot Web AI Agent"
       };
     }
 
+    // 3. CPU vs GPU / CPU Hotter / Starvation
+    if (q.includes("cpu hotter") || (q.includes("temp") && q.includes("cpu")) || (q.includes("cpu") && ["bottleneck", "starvation", "high", "hot", "usage", "100", "draw"].some(k => q.includes(k)))) {
+      return {
+        response: `🖥️ **Host CPU vs Dedicated GPU Analysis**\n\nYour host CPU (${cpu.toFixed(0)}% load) and ${gpuName} (${temp.toFixed(0)}°C, ${util.toFixed(0)}% load) share a compact thermal chassis. In modern laptops, the CPU package frequently reaches 85-95°C during intensive tasks (such as 30,000 WebGL entity simulations or PyTorch DataLoader loops) while the dedicated GPU stays comparatively cooler (~60-70°C).\n\n**Why this happens:**\n• **Host Orchestration**: The CPU must calculate physics, transform geometry matrices, and submit draw calls to DirectX/OpenGL before the GPU can render a single frame.\n• **Thermal Mass**: CPU dies have smaller surface area and higher power density per mm² than the GPU die.\n• **Driver Stalls**: If single-threaded JS/Python is pegged at 100%, the GPU starves waiting for instructions.\n\n**Remediation:** Increase DataLoader \`num_workers=4\`, use page-locked memory (\`pin_memory=True\`), offload transforms to CUDA/WebGL shaders, and elevate the rear chassis.`,
+        suggested_actions: ["Parallelize Data Workers", "Enable Pin Memory", "Elevate Laptop Rear for Airflow"],
+        source: "GPUPilot Web AI Agent"
+      };
+    }
+
+    // 4. Memory / VRAM / 4GB / OOM
+    if (["4gb", "vram", "memory", "oom", "out of memory", "allocation", "cache", "ram", "leak"].some(k => q.includes(k))) {
+      return {
+        response: `💾 **VRAM & Memory Management on ${gpuName}**\n\nCurrent dedicated VRAM allocation is **${vramUsed.toFixed(2)} GB / 4.00 GB (${vram.toFixed(1)}%)**.\n\nOn a 4GB accelerator, memory headroom is your strictest ceiling. VRAM is divided into:\n1. **Model Weights**: A 7B model in FP16 requires ~14GB (won't fit), but in 4-bit AWQ/GGUF requires only ~3.8GB.\n2. **Activations**: Scale linearly with batch size and quadratic with sequence length.\n3. **Optimizer States**: Adam requires 8 bytes per parameter in FP32.\n\n**Guaranteed Techniques to Avoid CUDA OOM:**\n• **Activation Checkpointing**: \`model.gradient_checkpointing_enable()\` discards intermediate activations during forward pass, cutting memory by up to 60%.\n• **Quantization**: Load with \`load_in_8bit=True\` or \`load_in_4bit=True\` via BitsAndBytes.\n• **Gradient Accumulation**: Simulate batch size 32 using micro-batch 4 accumulated over 8 steps.\n• **Cache Flush**: Call \`torch.cuda.empty_cache()\` after validation epochs.`,
+        suggested_actions: ["Enable Gradient Checkpointing", "Apply INT8/4-bit Quantization", "Cut Micro-Batch Size in Half"],
+        source: "GPUPilot Web AI Agent"
+      };
+    }
+
+    // 5. Temperature / Cooling / Fans / Thermal Throttle
+    if (["temperature", "temp", "hot", "heat", "thermal", "cooling", "fan", "celsius", "overheat", "throttle"].some(k => q.includes(k))) {
+      let thermalState, fix;
+      if (temp >= 85) {
+        thermalState = `⚠️ **Critical High Temperature (${temp.toFixed(0)}°C)**\n\nYour ${gpuName} has crossed thermal throttling thresholds (85°C+). The silicon internal sensor is downclocking core frequencies to safeguard the die.`;
+        fix = "Immediately cap target power envelope by 15%, elevate the chassis, and verify fan exhaust vents are clear of obstructions.";
+      } else if (temp >= 72) {
+        thermalState = `🌡️ **Elevated Temperature (${temp.toFixed(0)}°C)**\n\nYour ${gpuName} is operating warm under sustained load. Dynamic boost clocks may begin stepping down slightly as temperature approaches 80°C.`;
+        fix = "Ensure adequate airflow under the laptop. Consider switching to the **Efficiency** profile to drop temps by 6-10°C with <5% frame loss.";
+      } else {
+        thermalState = `❄️ **Optimal Thermal Envelope (${temp.toFixed(0)}°C)**\n\nYour ${gpuName} is well below the 83°C thermal target. Fan acoustic levels and die temperatures are within healthy parameters.`;
+        fix = "You have ample thermal headroom to run intensive benchmarks or increase compute batch multiplier.";
+      }
+
+      return {
+        response: `${thermalState}\n\n• **Current Temp**: ${temp.toFixed(0)}°C\n• **Fan Status**: System Managed (EC dynamic curve)\n• **Clock Speed**: ${gpuClock.toFixed(0)} MHz\n\n**Thermal Recommendation:** ${fix}`,
+        suggested_actions: ["Apply Efficiency Profile (-15W)", "Elevate Chassis for Intake Air", "Run Thermal Stress Test"],
+        source: "GPUPilot Web AI Agent"
+      };
+    }
+
+    // 6. Power / Wattage / Battery / TGP
+    if (["power", "watt", "tgp", "tdp", "battery", "energy", "consumption", "limit", "draw"].some(k => q.includes(k))) {
+      const pPct = powerLimit > 0 ? (power / powerLimit) * 100 : 0;
+      return {
+        response: `⚡ **Power & Energy Dynamics**\n\nYour ${gpuName} is currently drawing **${power.toFixed(1)} Watts** against a target limit of **${powerLimit.toFixed(1)} Watts** (${pPct.toFixed(0)}% of TGP envelope).\n\n**Key Power Insights:**\n• **Dynamic Boost**: Modern laptop GPUs dynamically negotiate power with the CPU. When the CPU is heavily loaded, GPU power drops to prioritize host processing.\n• **Voltage-Frequency Curve**: Silicon power consumption scales with $V^2 \\times f$. Capping power by just 15% typically reduces temperatures by 8-12°C while sacrificing less than 3% compute throughput.\n• **Battery vs AC**: Always ensure your laptop is plugged into the OEM AC adapter; running on battery forces the GPU into low-power P8 state (clocks capped below 500 MHz).`,
+        suggested_actions: ["Switch to Efficiency Profile", "Verify AC Power Connection", "Inspect TGP Ceiling"],
+        source: "GPUPilot Web AI Agent"
+      };
+    }
+
+    // 7. Clocks / Frequency / P-States
+    if (["clock", "mhz", "frequency", "boost", "p-state", "core clock"].some(k => q.includes(k))) {
+      return {
+        response: `⏱️ **Clock Frequency Architecture**\n\nActive Frequencies on ${gpuName}:\n• **Core Clock**: **${gpuClock.toFixed(0)} MHz**\n• **Memory Clock**: **${memClock.toFixed(0)} MHz**\n\n**How GPU Clocks Work:**\nNVIDIA GPUs operate on automated P-States (P0 = Maximum 3D compute/CUDA, P8 = 2D Idle Desktop). The GPU Boost algorithm continuously evaluates three silicon limiters every millisecond: **Temperature**, **Power (TGP)**, and **Voltage reliability**. If temperature exceeds 75°C, clocks gradually step down in 15 MHz increments. If power reaches 45W, clock voltage is clamped.`,
+        suggested_actions: ["Check Thermal Margin", "Set High Performance Power Plan", "Run Compute Stress Test"],
+        source: "GPUPilot Web AI Agent"
+      };
+    }
+
+    // 8. Benchmark / Scoring / Testing
+    if (["benchmark", "score", "grade", "test", "stress", "measure"].some(k => q.includes(k))) {
+      return {
+        response: `🏆 **GPUPilot Composite Benchmarking Suite**\n\nGPUPilot grades your accelerator on a normalized scale from **0 to 1000 points** based on three live stress criteria:\n1. **Compute Sustained Throughput (40%)**: Tests raw FP32 / FP16 matrix operations and warp scheduling stability.\n2. **Thermal Resilience (35%)**: Measures temperature delta under full load. Systems that stay cool without thermal downclocking receive top marks.\n3. **Memory Bus Saturation (25%)**: Tests VRAM bandwidth transfer rates and cache eviction latency.\n\nWith your ${gpuName} running at **${util.toFixed(0)}%** load, **${temp.toFixed(0)}°C**, and **${power.toFixed(1)}W**, the system is primed for testing.`,
+        suggested_actions: ["Run 10s Sustained Benchmark", "Run Memory Bus Stress Test", "Compare Historical Grades"],
+        source: "GPUPilot Web AI Agent"
+      };
+    }
+
+    // 9. Optimization / Tuning / PyTorch / Code Remediation
+    if (["optimize", "optimization", "tune", "tuning", "remediat", "improve", "fix", "faster", "code", "batch"].some(k => q.includes(k))) {
+      return {
+        response: `🛠️ **Autonomous Optimization Plan for ${gpuName}**\n\nBased on current telemetry (State: **${activeScenario.toUpperCase()}**, GPU: **${util.toFixed(0)}%**, VRAM: **${vram.toFixed(0)}%**, Temp: **${temp.toFixed(0)}°C**):\n\n**Top 3 Engineering Remediation Steps:**\n1. **Automatic Mixed Precision (AMP)**: Wrap forward pass in \`torch.cuda.amp.autocast()\` to use Tensor Cores. Yields 2x-3x speedup on Ampere architecture.\n2. **Kernel Fusion**: Use PyTorch 2.0 \`model = torch.compile(model)\` to fuse sequential elementwise kernels and eliminate CUDA launch overhead.\n3. **Zero-Copy Host Paging**: Set \`DataLoader(..., pin_memory=True, num_workers=4)\` to eliminate CPU memory copy stalls.\n\nYou can also activate pre-tested profiles in the **Autonomous Tuner (Phase 10)** tab with 1-click execution.`,
+        suggested_actions: ["Apply Balanced Tuning Profile", "Copy PyTorch Remediation Code", "View Optimization Engine"],
+        source: "GPUPilot Web AI Agent"
+      };
+    }
+
+    // 10. Architecture / Specs / CUDA Cores
+    if (["architecture", "spec", "specs", "cuda", "hardware", "device", "tensor core", "rtx"].some(k => q.includes(k))) {
+      return {
+        response: `⚙️ **Hardware Architecture & Specifications**\n\n**Identified Device**: ${gpuName}\n• **Silicon Generation**: NVIDIA Ampere Architecture (8nm GA107 Die)\n• **Compute Units**: 2048 CUDA Cores, 64 Tensor Cores (3rd Gen), 16 RT Cores (2nd Gen)\n• **Memory Subsystem**: 4.0 GB GDDR6 on 128-bit bus (~192 GB/s bandwidth)\n• **Power Envelope**: 35W - 60W Dynamic Boost TGP\n• **Hardware Features**: FP16 Tensor Core acceleration, BF16 compute support, NVENC Gen 7 hardware video encoder.`,
+        suggested_actions: ["Test Tensor Core FP16 Ops", "Run 5s Compute Stress", "Check Active Telemetry"],
+        source: "GPUPilot Web AI Agent"
+      };
+    }
+
+    // 11. Bottlenecks
+    if (["bottleneck", "stall", "throttle", "constraint", "choke"].some(k => q.includes(k))) {
+      const diag = this.getDiagnosis();
+      return {
+        response: `🔍 **Active Bottleneck Diagnostics**\n\nGPUPilot's 6-rule heuristic engine evaluated your live telemetry and identified: **${diag.title}**.\n\n• **Severity Confidence**: ${(diag.confidence * 100).toFixed(0)}%\n• **Primary Metric**: ${diag.explanation}\n\n**Hardware State Snapshot:**\n- GPU Core Load: ${util.toFixed(0)}%\n- Memory Occupancy: ${vram.toFixed(0)}% (${vramUsed.toFixed(2)} / 4.00 GB)\n- Temperature: ${temp.toFixed(0)}°C\n- Host CPU: ${cpu.toFixed(0)}%\n\nReview the Remediation Plan tab for copy-paste PyTorch and system fixes.`,
+        suggested_actions: ["Open Optimization Tab", "Apply Autonomous Tuner", "Run Baseline Benchmark"],
+        source: "GPUPilot Web AI Agent"
+      };
+    }
+
+    // 12. Smart Contextual Telemetry Breakdown (General Inquiries / Fallback)
     return {
-      response: `Your GPU is currently operating in **${activeScenario.toUpperCase()}** state. Utilization is **${m.gpu_utilization}%**, VRAM is **${m.memory_utilization}%**, and temperature is **${m.temperature}°C**. You can switch workload profiles in the Simulation Lab to inspect different silicon constraints or run a benchmark to evaluate stability!`,
-      suggested_actions: ["Run 5s Quick Benchmark", "Test Thermal Throttling Scenario", "Check Optimization Prescriptions"],
+      response: `🤖 **GPUPilot AI Telemetry Analysis for ${gpuName}**\n\nI have inspected your real-time hardware telemetry in response to: *"${prompt}"*\n\n• **Compute Load**: **${util.toFixed(0)}%** (${util > 80 ? "High saturation" : util > 30 ? "Balanced workload" : "Light/Idle"})\n• **Thermals**: **${temp.toFixed(0)}°C** (${temp >= 85 ? "Thermal throttle danger" : "Normal operating range"})\n• **VRAM Occupancy**: **${vram.toFixed(0)}%** (${vramUsed.toFixed(2)} / 4.00 GB)\n• **Host CPU**: **${cpu.toFixed(0)}%** load\n• **Active Scenario**: **${activeScenario.toUpperCase()}**\n\nAsk me specific questions like *"Why is my GPU utilization increasing?"*, *"How to reduce temperature?"*, or *"What is performance?"* for deep-dive root cause analysis!`,
+      suggested_actions: ["Explain Active Bottleneck", "Run Sustained Benchmark", "Apply Tuning Profile"],
       source: "GPUPilot Web AI Agent"
     };
   },

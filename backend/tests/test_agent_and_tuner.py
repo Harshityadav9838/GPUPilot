@@ -31,6 +31,26 @@ def test_ai_agent_explanation_custom_query():
     assert "chassis" in res.response.lower() or "cpu" in res.response.lower()
 
 
+def test_ai_agent_distinct_answers_for_different_queries():
+    m = _mock_metrics("healthy")
+    res_perf = agent.explain_state(m, "now what is performance")
+    res_util = agent.explain_state(m, "why my gpu utilization increases")
+    res_power = agent.explain_state(m, "what is my power usage")
+    res_vram = agent.explain_state(m, "how to fit into 4gb vram")
+
+    # Responses must be distinctly different from each other
+    assert res_perf.response != res_util.response
+    assert res_util.response != res_power.response
+    assert res_power.response != res_vram.response
+
+    # Verify domain-specific content
+    assert "performance" in res_perf.response.lower() or "evaluation" in res_perf.response.lower()
+    assert "utilization" in res_util.response.lower() or "streaming multiprocessors" in res_util.response.lower()
+    assert "power" in res_power.response.lower() or "watts" in res_power.response.lower()
+    assert "vram" in res_vram.response.lower() or "checkpointing" in res_vram.response.lower()
+
+
+
 def test_tuner_get_profiles():
     profiles = tuner.get_profiles()
     assert len(profiles) == 3
