@@ -33,20 +33,43 @@
 
 ---
 
-## 🚀 Quick Start (1-Click for Judges)
+## 🚀 Quick Start Guide
 
-### Windows (Recommended)
-Simply double-click:
-```cmd
-start.bat
-```
-*This automatically sets up Python dependencies, launches both backend and frontend servers, and opens your browser directly to `http://localhost:5173`!*
+### 🌐 Option A: Test Live Online (Zero Installation — Instant for Judges)
+You do not need to download or install anything to test GPUPilot! Open the live web app directly:
 
-### macOS / Linux
-```bash
-chmod +x start.sh
-./start.sh
-```
+👉 **[Launch Live Web Dashboard (gpu-pilot.vercel.app)](https://gpu-pilot.vercel.app/)**
+
+*Automatically detects your browser's graphics chip (NVIDIA, Intel, AMD, or Apple Silicon) and lets you test all 10 phases, failure scenarios, benchmarks, tuning profiles, and dual theme directly in your browser.*
+
+---
+
+### 💻 Option B: Run on Physical GPU Hardware (Local Machine)
+
+If you want GPUPilot to connect to your computer's **real physical GPU hardware sensors** (reading live diode temperatures, fan RPM, and PCIe wattage via NVML / WMI):
+
+#### 1. Download the Project
+* **Option 1**: Click the green **`<> Code`** button at the top right of this GitHub page → Click **`Download ZIP`**, then extract the ZIP folder.
+* **Option 2** (via Git):
+  ```bash
+  git clone https://github.com/Harshityadav9838/GPUPilot.git
+  cd GPUPilot
+  ```
+
+#### 2. Launch with 1-Click
+* **Windows (Recommended)**:  
+  Open the extracted folder in Windows File Explorer and double-click:
+  ```cmd
+  start.bat
+  ```
+  *(Or run `.\start.bat` in your terminal)*.
+  *This automatically creates the Python virtual environment, installs backend dependencies, starts FastAPI and Vite, and opens your browser directly to `http://localhost:5173`!*
+
+* **macOS / Linux**:
+  ```bash
+  chmod +x start.sh
+  ./start.sh
+  ```
 
 ---
 
@@ -84,7 +107,7 @@ GPUPilot features extensive automated test coverage across all 10 phases. Run th
 cd backend
 pytest tests/ -v
 ```
-**Result: 41 passed in ~12 seconds** ✅
+**Result: 42 passed in ~14 seconds** ✅
 
 ---
 
