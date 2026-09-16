@@ -2223,3 +2223,22 @@ code, pre, .mono {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+
+.modal-launch-link {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--accent-cyan);
+  text-decoration: none;
+  background: rgba(6, 182, 212, 0.15);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+  padding: 4px 10px;
+  border-radius: 6px;
+  transition: all 0.2s;
+  margin-left: 8px;
+}
+
+.modal-launch-link:hover {
+  background: var(--accent-cyan);
+  color: #030712;
+}

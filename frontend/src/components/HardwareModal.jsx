@@ -81,10 +81,13 @@ export function HardwareModal({ isOpen, onClose, onRetry, gpuName, isChecking })
 
               <div className="modal-step">
                 <span className="step-number">3</span>
-                <span>Open your browser to the local hardware dashboard:</span>
+                <span>Open your local dashboard (bypasses browser mixed-content blocks):</span>
               </div>
-              <div className="code-snippet-line">
+              <div className="code-snippet-line flex-row items-center justify-between">
                 <code>http://localhost:5173</code>
+                <a href="http://localhost:5173" target="_blank" rel="noreferrer" className="modal-launch-link">
+                  Open Local Dashboard ↗
+                </a>
               </div>
             </div>
           </div>
