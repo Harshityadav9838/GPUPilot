@@ -14,6 +14,8 @@ class Settings(BaseSettings):
         "*"
     ]
     DEFAULT_SCENARIO: str = "healthy"
+    GEMINI_API_KEY: str | None = None
+
 
     model_config = SettingsConfigDict(
         env_file=".env",

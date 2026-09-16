@@ -472,9 +472,10 @@ export const webEngine = {
     return benchmarkHistory;
   },
 
-  askAgent(prompt = "") {
+  async askAgent(prompt = "", apiKey = null) {
     const m = this.getMetrics();
-    const q = (prompt || "").toLowerCase().trim();
+    const rawPrompt = (prompt || "").trim();
+    const q = rawPrompt.toLowerCase();
     const gpuName = m.name || "GPU Accelerator";
     const util = m.gpu_utilization;
     const temp = m.temperature;
@@ -487,6 +488,63 @@ export const webEngine = {
     const memClock = m.memory_clock || 6000.0;
     const latency = m.latency || 22.0;
     const throughput = m.throughput || 180.0;
+
+    // If an API key is provided, query Google Gemini directly with live telemetry
+    if (apiKey && apiKey.trim() && rawPrompt) {
+      try {
+        const sysInstruction = "You are GPUPilot, an autonomous AI GPU Performance Engineer and senior systems architect. You analyze real-time GPU telemetry and hardware metrics to provide deep, actionable engineering advice, bottleneck root-cause analysis, and optimization guidance. Keep your responses technically accurate, concise, grounded in the user's specific live metrics, and formatted in clean markdown. Always conclude your answer with a final line: 'ACTIONS: [Action 1, Action 2, Action 3]' with 2 to 4 concise action phrases.";
+
+        const promptBody = `LIVE GPU TELEMETRY SNAPSHOT:
+- Hardware Device: ${gpuName}
+- Compute Pipeline Load: ${util.toFixed(1)}%
+- VRAM Occupancy: ${vram.toFixed(1)}% (${vramUsed.toFixed(2)} GB used / 4.00 GB total)
+- GPU Core Temperature: ${temp.toFixed(1)}°C
+- Power Draw: ${power.toFixed(1)}W (Target Limit: ${powerLimit.toFixed(1)}W)
+- Core Clock: ${gpuClock.toFixed(0)} MHz | Memory Clock: ${memClock.toFixed(0)} MHz
+- Host CPU Load: ${cpu.toFixed(1)}%
+- Workload Latency: ${latency.toFixed(1)} ms | Throughput: ${throughput.toFixed(1)} ops/s
+- Active Scenario: ${activeScenario.toUpperCase()}
+
+USER QUESTION:
+"${rawPrompt}"`;
+
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey.trim()}`;
+        const resp = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: sysInstruction }] },
+            contents: [{ parts: [{ text: promptBody }] }],
+            generationConfig: { temperature: 0.35, maxOutputTokens: 900 }
+          })
+        });
+
+        if (resp.ok) {
+          const data = await resp.json();
+          const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (rawText) {
+            let actions = ["Run Sustained Benchmark", "Inspect Telemetry Metrics", "Apply Autonomous Tuner"];
+            let mainText = rawText;
+            if (rawText.includes("ACTIONS:")) {
+              const parts = rawText.split("ACTIONS:");
+              mainText = parts[0].trim();
+              const actsRaw = parts[1].replace(/[\[\]"']/g, "");
+              const parsedActs = actsRaw.split(",").map(a => a.trim()).filter(Boolean);
+              if (parsedActs.length > 0) actions = parsedActs.slice(0, 4);
+            }
+            return {
+              response: mainText,
+              suggested_actions: actions,
+              source: "Google Gemini (Live LLM)"
+            };
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to query Gemini API from browser, falling back to WebEngine heuristic:", err);
+      }
+    }
+
+    // Heuristic Engine Fallback
 
     // 1. Performance / Speed / FPS / Latency / Throughput
     if (["performance", "speed", "fps", "how fast", "fast", "throughput", "latency", "tflops", "gflops", "rate"].some(k => q.includes(k))) {

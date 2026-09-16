@@ -1,11 +1,115 @@
-# GPUPilot Phase 9: AI Agent / LLM Workload Explainer Layer
-from __future__ import annotations
-from typing import List
+import os
+import json
+import re
+import logging
+import urllib.request
+import urllib.error
 from models.schemas import GPUMetrics, AgentChatResponse
 from gpu import diagnostics as diag
 
+logger = logging.getLogger("GPUPilot.Agent")
 
-def explain_state(metrics: GPUMetrics, query: str = "") -> AgentChatResponse:
+
+def query_gemini_llm(metrics: GPUMetrics, query: str, api_key: str, model_name: str = "gemini-1.5-flash") -> AgentChatResponse | None:
+    try:
+        diagnosis = diag.analyse(metrics)
+        b_type = diagnosis.bottleneck
+        gpu_name = metrics.name or "GPU Accelerator"
+        temp = metrics.temperature if metrics.temperature is not None else 65.0
+        util = metrics.gpu_utilization if metrics.gpu_utilization is not None else 45.0
+        vram = metrics.memory_utilization if metrics.memory_utilization is not None else 35.0
+        vram_used = metrics.memory_used if metrics.memory_used is not None else 1.4
+        vram_total = metrics.memory_total if metrics.memory_total is not None else 4.0
+        cpu = metrics.cpu_utilization if metrics.cpu_utilization is not None else 30.0
+        power = metrics.power_usage if metrics.power_usage is not None else 25.0
+        power_limit = metrics.power_limit if metrics.power_limit is not None else 45.0
+        gpu_clock = metrics.gpu_clock if metrics.gpu_clock is not None else 1350.0
+        mem_clock = metrics.memory_clock if metrics.memory_clock is not None else 6000.0
+        latency = metrics.latency if metrics.latency is not None else 22.0
+        throughput = metrics.throughput if metrics.throughput is not None else 180.0
+
+        system_instruction = (
+            "You are GPUPilot, an autonomous AI GPU Performance Engineer and senior systems architect. "
+            "You analyze real-time GPU telemetry and hardware metrics to provide deep, actionable engineering advice, "
+            "bottleneck root-cause analysis, and optimization guidance. Keep your responses technically accurate, concise, "
+            "grounded in the user's specific live metrics, and formatted in clean markdown. "
+            "Always conclude your answer with a final line: 'ACTIONS: [Action 1, Action 2, Action 3]' with 2 to 4 concise action phrases."
+        )
+
+        prompt_body = (
+            f"LIVE GPU TELEMETRY SNAPSHOT:\n"
+            f"- Hardware Device: {gpu_name} (Vendor: {metrics.vendor})\n"
+            f"- Compute Pipeline Load: {util:.1f}%\n"
+            f"- VRAM Occupancy: {vram:.1f}% ({vram_used:.2f} GB used / {vram_total:.2f} GB total)\n"
+            f"- GPU Core Temperature: {temp:.1f}°C\n"
+            f"- Power Draw: {power:.1f}W (Target Limit: {power_limit:.1f}W)\n"
+            f"- Core Clock: {gpu_clock:.0f} MHz | Memory Clock: {mem_clock:.0f} MHz\n"
+            f"- Host CPU Load: {cpu:.1f}%\n"
+            f"- Workload Latency: {latency:.1f} ms | Throughput: {throughput:.1f} ops/s\n"
+            f"- Active Bottleneck Detection: {b_type.upper()} ({diagnosis.explanation})\n\n"
+            f"USER QUESTION:\n\"{query}\""
+        )
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key.strip()}"
+        payload = {
+            "system_instruction": {
+                "parts": [{"text": system_instruction}]
+            },
+            "contents": [
+                {
+                    "parts": [{"text": prompt_body}]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.35,
+                "maxOutputTokens": 900
+            }
+        }
+
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            candidates = data.get("candidates", [])
+            if not candidates:
+                return None
+            text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+            if not text:
+                return None
+
+            actions = ["Run Sustained Benchmark", "Inspect Telemetry Metrics", "Apply Autonomous Tuner"]
+            if "ACTIONS:" in text:
+                parts = text.split("ACTIONS:")
+                main_text = parts[0].strip()
+                raw_acts = parts[1].strip().replace("[", "").replace("]", "").replace('"', '').replace("'", "")
+                split_acts = [a.strip() for a in raw_acts.split(",") if a.strip()]
+                if split_acts:
+                    actions = split_acts[:4]
+            else:
+                main_text = text.strip()
+
+            return AgentChatResponse(
+                response=main_text,
+                suggested_actions=actions,
+                source=f"Google Gemini ({model_name})"
+            )
+    except Exception as e:
+        logger.warning(f"Failed to query Gemini LLM ({e}), falling back to heuristic engine.")
+        return None
+
+
+def explain_state(metrics: GPUMetrics, query: str = "", api_key: str | None = None, model_name: str = "gemini-1.5-flash") -> AgentChatResponse:
+    # Check if Gemini LLM key is provided or present in environment
+    resolved_key = (api_key or "").strip() or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if resolved_key and query.strip():
+        llm_resp = query_gemini_llm(metrics, query, resolved_key, model_name)
+        if llm_resp:
+            return llm_resp
+
     diagnosis = diag.analyse(metrics)
     b_type = diagnosis.bottleneck
     gpu_name = metrics.name or "GPU Accelerator"
@@ -23,6 +127,7 @@ def explain_state(metrics: GPUMetrics, query: str = "") -> AgentChatResponse:
     throughput = metrics.throughput if metrics.throughput is not None else 180.0
 
     q = (query or "").lower().strip()
+
 
     # 1. Performance / Speed / FPS / Latency / Throughput
     if any(k in q for k in ["performance", "speed", "fps", "how fast", "fast", "throughput", "latency", "tflops", "gflops", "rate"]):

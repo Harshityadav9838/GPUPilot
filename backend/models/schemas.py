@@ -136,6 +136,9 @@ class BenchmarkStatus(BaseModel):
 # Phase 9: AI Agent / LLM Explainer Models
 class AgentChatRequest(BaseModel):
     prompt: str
+    api_key: Optional[str] = None
+    model: Optional[str] = "gemini-1.5-flash"
+
 
 
 class AgentChatResponse(BaseModel):

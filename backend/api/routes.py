@@ -168,7 +168,8 @@ def chat_with_agent(req: AgentChatRequest):
         metrics = provider.get_metrics()
     except Exception:
         metrics = GPUMetrics(vendor="Unknown", name="Accelerator")
-    return agent.explain_state(metrics, req.prompt)
+    return agent.explain_state(metrics, req.prompt, api_key=req.api_key, model_name=req.model or "gemini-1.5-flash")
+
 
 
 # Phase 10: Autonomous Tuning Engine Endpoints

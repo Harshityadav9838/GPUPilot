@@ -121,14 +121,14 @@ export const api = {
     return webEngine.getBenchmarkHistory();
   },
 
-  async askAgent(prompt) {
+  async askAgent(prompt, apiKey = null) {
     const data = await fetchWithFallback("/agent/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({ prompt, api_key: apiKey }),
     });
     if (data) return data;
-    return webEngine.askAgent(prompt);
+    return webEngine.askAgent(prompt, apiKey);
   },
 
   async getTuningProfiles() {
